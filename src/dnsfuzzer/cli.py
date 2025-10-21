@@ -136,7 +136,7 @@ def test_strategy(ctx: click.Context, query_name: str, query_type: str,
 @cli.command()
 @click.option('--config', '-c', type=click.Path(exists=True), 
               help='Client configuration file path')
-@click.option('--target', '-t', help='Target DNS server IP address')
+@click.option('--target', '-t', multiple=True, help='Target DNS server IP address (can be specified multiple times)')
 @click.option('--port', '-p', type=int, help='Target DNS server port')
 @click.option('--iterations', '-i', type=int, help='Number of fuzzing iterations')
 @click.option('--concurrent', type=int, help='Number of concurrent requests')
@@ -145,12 +145,13 @@ def test_strategy(ctx: click.Context, query_name: str, query_type: str,
 @click.option('--query-name', '-n', help='Default query name to fuzz')
 @click.option('--query-type', '-q', help='Default query type (A, AAAA, MX, etc.)')
 @click.option('--timeout', type=float, help='Request timeout in seconds')
+@click.option('--all', '-a', is_flag=True, help='Test each query against all target servers')
 @click.pass_context
-def client(ctx: click.Context, config: Optional[str], target: Optional[str], 
+def client(ctx: click.Context, config: Optional[str], target: tuple, 
            port: Optional[int],
            iterations: Optional[int], concurrent: Optional[int], delay: Optional[float],
            output: Optional[str], query_name: Optional[str], query_type: Optional[str],
-           timeout: Optional[float]) -> None:
+           timeout: Optional[float], all: bool) -> None:
     """Start the DNS Fuzzer client."""
     from .client.client import run_client
     from .client.config import load_client_config, create_default_client_config
@@ -167,7 +168,7 @@ def client(ctx: click.Context, config: Optional[str], target: Optional[str],
         
         # Override config with command line options
         if target:
-            client_config.target_servers = target if isinstance(target, list) else [target]
+            client_config.target_servers = list(target)
         if port is not None:
             client_config.target_port = port
         if iterations is not None:
@@ -184,6 +185,8 @@ def client(ctx: click.Context, config: Optional[str], target: Optional[str],
             client_config.default_query_type = query_type
         if timeout is not None:
             client_config.timeout = timeout
+        if all:
+            client_config.test_all_servers = all
         
         logger.info("Starting DNS Fuzzer Client...")
         logger.info(f"Target: {', '.join(client_config.target_servers)}:{client_config.target_port}")

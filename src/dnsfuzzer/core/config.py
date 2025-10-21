@@ -75,6 +75,7 @@ class ClientConfig(BaseFuzzerConfig):
     max_iterations: int = Field(default=1000, ge=1, description="Maximum number of fuzzing iterations")
     concurrent_requests: int = Field(default=10, ge=1, le=1000, description="Number of concurrent requests")
     delay_between_requests: float = Field(default=0.1, ge=0.0, description="Delay between requests in seconds")
+    test_all_servers: bool = Field(default=True, description="Whether to send each query to all target servers")
     
     # Client-specific configuration
     save_packets: bool = Field(default=True, description="Whether to save packet data")

@@ -69,14 +69,17 @@ class DNSFuzzerClient:
         
         # Generate and send queries
         tasks = []
+        query_count = 0
         async for query_data in self._generate_queries():
-            if len(tasks) >= self.config.max_iterations:
-                break
-                
             task = asyncio.create_task(
                 self._send(semaphore, query_data)
             )
             tasks.append(task)
+            query_count += 1
+            expected_queries = (self.config.max_iterations * len(self.config.target_servers) if self.config.test_all_servers else self.config.max_iterations)
+            
+            if query_count >= expected_queries:
+                break
             
             # Add delay between request creation
             if self.config.delay_between_requests > 0:
@@ -114,19 +117,34 @@ class DNSFuzzerClient:
                 if mutated_query != base_query:
                     self.stats['mutations_applied'] += 1
                 
-                # Select target server
-                target_server = random.choice(self.config.target_servers)
+                # Generate queries for target servers
+                if self.config.test_all_servers:
+                    # Send to all servers
+                    for server_idx, target_server in enumerate(self.config.target_servers):
+                        query_data = {
+                            'iteration': iteration,
+                            'server_index': server_idx,
+                            'target_server': target_server,
+                            'target_port': self.config.target_port,
+                            'original_query': base_query,
+                            'mutated_query': mutated_query,
+                            'timestamp': time.time()
+                        }
+                        yield query_data
+                else:
+                    # Original behavior: select one server randomly
+                    target_server = random.choice(self.config.target_servers)
+                    query_data = {
+                        'iteration': iteration,
+                        'server_index': 0,
+                        'target_server': target_server,
+                        'target_port': self.config.target_port,
+                        'original_query': base_query,
+                        'mutated_query': mutated_query,
+                        'timestamp': time.time()
+                    }
+                    yield query_data
                 
-                query_data = {
-                    'iteration': iteration,
-                    'target_server': target_server,
-                    'target_port': self.config.target_port,
-                    'original_query': base_query,
-                    'mutated_query': mutated_query,
-                    'timestamp': time.time()
-                }
-                
-                yield query_data
                 iteration += 1
                 
             except Exception as e:
@@ -142,12 +160,14 @@ class DNSFuzzerClient:
     async def _send_query(self, query_data: Dict[str, Any]) -> None:
         """Send a single DNS query and record the result."""
         iteration = query_data['iteration']
+        server_index = query_data.get('server_index', 0)
         target_server = query_data['target_server']
         target_port = query_data['target_port']
         mutated_query = query_data['mutated_query']
         
         result = {
             'iteration': iteration,
+            'server_index': server_index,
             'target_server': target_server,
             'target_port': target_port,
             'timestamp': query_data['timestamp'],
