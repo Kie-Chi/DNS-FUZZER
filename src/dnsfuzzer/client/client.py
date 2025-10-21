@@ -10,6 +10,7 @@ import json
 from dataclasses import asdict
 
 from .config import ClientConfig
+from .analyze_interface import create_analyze_interface, AnalyzeInterface
 from ..core.query import DNSQuery, create_basic_query
 from ..core.mutator import create_default_mutator
 from ..utils.logger import get_logger
@@ -21,11 +22,7 @@ class DNSFuzzerClient:
     """DNS fuzzer client for sending mutated queries to target servers."""
     
     def __init__(self, config: ClientConfig):
-        """Initialize the DNS fuzzer client.
-        
-        Args:
-            config: Client configuration
-        """
+        """Initialize the DNS fuzzer client."""
         self.config = config
         self.mutator = create_default_mutator(config.random_seed)        
         self.results: List[Dict[str, Any]] = []
@@ -38,6 +35,14 @@ class DNSFuzzerClient:
             'start_time': None,
             'end_time': None
         }
+        
+        # Initialize analyze interface if wait_for_analyze is enabled
+        self.analyze_interface: Optional[AnalyzeInterface] = None
+        if config.wait_for_analyze:
+            self.analyze_interface = create_analyze_interface(
+                interface_type="mock",
+                simulate_delay=config.analyze_wait_timeout
+            )
         
         # Set random seed if provided
         if config.random_seed is not None:
@@ -57,6 +62,8 @@ class DNSFuzzerClient:
         logger.info(f"Target servers: {self.config.target_servers}")
         logger.info(f"Max iterations: {self.config.max_iterations}")
         logger.info(f"Concurrent requests: {self.config.concurrent_requests}")
+        if self.config.wait_for_analyze:
+            logger.info(f"Wait for analyze enabled with timeout: {self.config.analyze_wait_timeout}s")
         
         self.stats['start_time'] = time.time()
         
@@ -67,7 +74,22 @@ class DNSFuzzerClient:
         # Create semaphore to limit concurrent requests
         semaphore = asyncio.Semaphore(self.config.concurrent_requests)
         
-        # Generate and send queries
+        # Generate and send queries with analyze waiting logic
+        if self.config.wait_for_analyze:
+            await self._run_with_analyze_wait(semaphore)
+        else:
+            await self._run_without_analyze_wait(semaphore)
+        
+        self.stats['end_time'] = time.time()
+        
+        # Save results
+        await self._save_results()
+        
+        # Print summary
+        self._print_summary()
+    
+    async def _run_without_analyze_wait(self, semaphore: asyncio.Semaphore) -> None:
+        """Run fuzzing without waiting for analyze signals (original behavior)."""
         tasks = []
         query_count = 0
         async for query_data in self._generate_queries():
@@ -88,14 +110,97 @@ class DNSFuzzerClient:
         # Wait for all tasks to complete
         logger.info(f"Waiting for {len(tasks)} queries to complete")
         await asyncio.gather(*tasks, return_exceptions=True)
+    
+    async def _run_with_analyze_wait(self, semaphore: asyncio.Semaphore) -> None:
+        """Run fuzzing with waiting for analyze signals after each iteration."""
+        iteration = 0
         
-        self.stats['end_time'] = time.time()
-        
-        # Save results
-        await self._save_results()
-        
-        # Print summary
-        self._print_summary()
+        while iteration < self.config.max_iterations:
+            # Generate queries for current iteration
+            iteration_tasks = []
+            
+            # Create base query
+            base_query = create_basic_query(
+                qname=self.config.default_query_name,
+                qtype=self.config.default_query_type
+            )
+            base_query.qclass = self.config.default_query_class
+            
+            # Apply mutations
+            try:
+                mutated_query = self.mutator.mutate(base_query)
+                
+                # Check if mutation was actually applied
+                if mutated_query != base_query:
+                    self.stats['mutations_applied'] += 1
+                
+                # Generate queries for target servers
+                if self.config.test_all_servers:
+                    # Send to all servers
+                    for server_idx, target_server in enumerate(self.config.target_servers):
+                        query_data = {
+                            'iteration': iteration,
+                            'server_index': server_idx,
+                            'target_server': target_server,
+                            'target_port': self.config.target_port,
+                            'original_query': base_query,
+                            'mutated_query': mutated_query,
+                            'timestamp': time.time()
+                        }
+                        task = asyncio.create_task(
+                            self._send(semaphore, query_data)
+                        )
+                        iteration_tasks.append(task)
+                else:
+                    # Original behavior: select one server randomly
+                    target_server = random.choice(self.config.target_servers)
+                    query_data = {
+                        'iteration': iteration,
+                        'server_index': 0,
+                        'target_server': target_server,
+                        'target_port': self.config.target_port,
+                        'original_query': base_query,
+                        'mutated_query': mutated_query,
+                        'timestamp': time.time()
+                    }
+                    task = asyncio.create_task(
+                        self._send(semaphore, query_data)
+                    )
+                    iteration_tasks.append(task)
+                
+                # Wait for all queries in this iteration to complete
+                logger.info(f"Waiting for iteration {iteration} queries to complete")
+                await asyncio.gather(*iteration_tasks, return_exceptions=True)
+                
+                # Wait for analyze signal (simulated with sleep for now)
+                logger.info(f"Waiting for analyze signal (timeout: {self.config.analyze_wait_timeout}s)")
+                await self._wait_for_analyze_signal()
+                
+                iteration += 1
+                
+            except Exception as e:
+                logger.error(f"Error in iteration {iteration}: {e}")
+                iteration += 1
+                continue
+    
+    async def _wait_for_analyze_signal(self) -> None:
+        """Wait for analyze signal using the analyze interface."""
+        if self.analyze_interface:
+            try:
+                signal_received = await self.analyze_interface.wait_for_signal(
+                    timeout=self.config.analyze_wait_timeout
+                )
+                if signal_received:
+                    logger.debug("Analyze signal received")
+                else:
+                    logger.warning("Analyze signal timeout, proceeding anyway")
+            except Exception as e:
+                logger.error(f"Error waiting for analyze signal: {e}")
+                logger.info("Proceeding without analyze signal")
+        else:
+            # Fallback to simple sleep if no interface available
+            await asyncio.sleep(self.config.analyze_wait_timeout)
+            logger.debug("Analyze signal simulated with sleep")
     
     async def _generate_queries(self) -> AsyncGenerator[Dict[str, Any], None]:
         """Generate DNS queries for fuzzing."""

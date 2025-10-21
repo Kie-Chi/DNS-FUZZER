@@ -146,12 +146,14 @@ def test_strategy(ctx: click.Context, query_name: str, query_type: str,
 @click.option('--query-type', '-q', help='Default query type (A, AAAA, MX, etc.)')
 @click.option('--timeout', type=float, help='Request timeout in seconds')
 @click.option('--all', '-a', is_flag=True, help='Test each query against all target servers')
+@click.option('--wait-analyze', '-w', is_flag=True, help='Wait for analyze signal after each iteration')
+@click.option('--analyze-timeout', '-at', type=float, help='Timeout for waiting analyze signal (seconds)')
 @click.pass_context
 def client(ctx: click.Context, config: Optional[str], target: tuple, 
            port: Optional[int],
            iterations: Optional[int], concurrent: Optional[int], delay: Optional[float],
            output: Optional[str], query_name: Optional[str], query_type: Optional[str],
-           timeout: Optional[float], all: bool) -> None:
+           timeout: Optional[float], all: bool, wait_analyze: bool, analyze_timeout: Optional[float]) -> None:
     """Start the DNS Fuzzer client."""
     from .client.client import run_client
     from .client.config import load_client_config, create_default_client_config
@@ -187,6 +189,10 @@ def client(ctx: click.Context, config: Optional[str], target: tuple,
             client_config.timeout = timeout
         if all:
             client_config.test_all_servers = all
+        if wait_analyze:
+            client_config.wait_for_analyze = wait_analyze
+        if analyze_timeout is not None:
+            client_config.analyze_wait_timeout = analyze_timeout
         
         logger.info("Starting DNS Fuzzer Client...")
         logger.info(f"Target: {', '.join(client_config.target_servers)}:{client_config.target_port}")
