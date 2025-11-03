@@ -32,6 +32,9 @@ class AnalyzeTCPHandler(socketserver.BaseRequestHandler):
                 _ = self.request.recv(1024)  # we ignore content; presence indicates a tick
             except Exception:
                 pass
+            # Wait for analyze service to be ready
+            if cfg.wait_time > 0:
+                time.sleep(cfg.wait_time)
 
             # Query DNS-Monitor
             result = server.query_dnsm()

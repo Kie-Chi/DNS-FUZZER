@@ -17,6 +17,7 @@ class AnalyzeConfig(BaseModel):
     listen_port: int = Field(default=9100, ge=1, le=65535, description="Analyze service listen port")
     log_level: str = Field(default="INFO", description="Logging level")
     output_directory: str = Field(default="fuzzer_output/analyze", description="Directory to store analyze outputs")
+    wait_time: int = Field(default=1, ge=0, description="Timeout for waiting for analyze service")
 
     # DNS-Monitor aggregator or child server to query
     dnsm_address: str = Field(default="127.0.0.1", description="DNS-Monitor server address")

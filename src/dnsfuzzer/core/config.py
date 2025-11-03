@@ -77,7 +77,7 @@ class ClientConfig(BaseFuzzerConfig):
     delay_between_requests: float = Field(default=0.1, ge=0.0, description="Delay between requests in seconds")
     test_all_servers: bool = Field(default=True, description="Whether to send each query to all target servers")
     wait_for_analyze: bool = Field(default=False, description="Whether to wait for analyze signal after each iteration")
-    analyze_wait_timeout: float = Field(default=1.0, gt=0.0, description="Timeout for waiting analyze signal in seconds")
+    analyze_wait_timeout: float = Field(default=1.5, gt=0.0, description="Timeout for waiting analyze signal in seconds")
     
     # Client-specific configuration
     save_packets: bool = Field(default=True, description="Whether to save packet data")
