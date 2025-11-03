@@ -39,10 +39,18 @@ class DNSFuzzerClient:
         # Initialize analyze interface if wait_for_analyze is enabled
         self.analyze_interface: Optional[AnalyzeInterface] = None
         if config.wait_for_analyze:
-            self.analyze_interface = create_analyze_interface(
-                interface_type="mock",
-                simulate_delay=config.analyze_wait_timeout
-            )
+            # Prefer TCP interface to local analyze service; fallback to mock
+            try:
+                self.analyze_interface = create_analyze_interface(
+                    interface_type="tcp",
+                    host="127.0.0.1",
+                    port=9100,
+                )
+            except Exception:
+                self.analyze_interface = create_analyze_interface(
+                    interface_type="mock",
+                    simulate_delay=config.analyze_wait_timeout
+                )
         
         # Set random seed if provided
         if config.random_seed is not None:
@@ -171,9 +179,19 @@ class DNSFuzzerClient:
                 # Wait for all queries in this iteration to complete
                 logger.info(f"Waiting for iteration {iteration} queries to complete")
                 await asyncio.gather(*iteration_tasks, return_exceptions=True)
-                
+
                 # Wait for analyze signal (simulated with sleep for now)
                 logger.info(f"Waiting for analyze signal (timeout: {self.config.analyze_wait_timeout}s)")
+                # send iteration summary to analyze interface first
+                if self.analyze_interface:
+                    try:
+                        await self.analyze_interface.send_iteration_data({
+                            'iteration': iteration,
+                            'targets': self.config.target_servers,
+                            'timestamp': time.time(),
+                        })
+                    except Exception:
+                        pass
                 await self._wait_for_analyze_signal()
                 
                 iteration += 1

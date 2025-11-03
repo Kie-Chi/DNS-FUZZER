@@ -208,6 +208,32 @@ def client(ctx: click.Context, config: Optional[str], target: tuple,
 
 @cli.command()
 @click.option('--config', '-c', type=click.Path(exists=True), 
+              help='Analyze service configuration file path')
+@click.option('--host', '-h', help='Analyze service bind address')
+@click.option('--port', '-p', type=int, help='Analyze service port')
+@click.pass_context
+def analyze(ctx: click.Context, config: Optional[str], host: Optional[str], port: Optional[int]) -> None:
+    """Start the analyze service."""
+    from .analyze.server import run_analyze
+    from .analyze.config import load_analyze_config
+
+    cfg_path = config or ctx.obj.get('config_path')
+    acfg = load_analyze_config(cfg_path)
+    if host:
+        acfg.listen_address = host
+    if port is not None:
+        acfg.listen_port = port
+
+    logger.info(f"Starting analyze service on {acfg.listen_address}:{acfg.listen_port}")
+    logger.info(f"DNS-Monitor target: {acfg.dnsm_address}:{acfg.dnsm_port}")
+    try:
+        run_analyze(acfg)
+    except Exception as e:
+        logger.error(f"Failed to start analyze service: {e}")
+        sys.exit(1)
+
+@cli.command()
+@click.option('--config', '-c', type=click.Path(exists=True), 
               help='Authentication server configuration file path')
 @click.option('--host', '-h', help='Authentication server bind address')
 @click.option('--port', '-p', type=int, help='Authentication server port')

@@ -3,6 +3,8 @@
 import asyncio
 from abc import ABC, abstractmethod
 from typing import Dict, Any, Optional
+import json
+import socket
 from ..utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -167,5 +169,73 @@ def create_analyze_interface(interface_type: str = "mock", **kwargs) -> AnalyzeI
         return MockAnalyzeInterface(**kwargs)
     elif interface_type == "http":
         return HTTPAnalyzeInterface(**kwargs)
+    elif interface_type == "tcp":
+        return TCPAnalyzeInterface(**kwargs)
     else:
         raise ValueError(f"Unknown interface type: {interface_type}")
+
+
+class TCPAnalyzeInterface(AnalyzeInterface):
+    """TCP-based analyze interface that talks to local analyze service."""
+
+    def __init__(self, host: str = "127.0.0.1", port: int = 9100, timeout: float = 2.0):
+        self.host = host
+        self.port = port
+        self.timeout = timeout
+        self.connected = False
+        self._pending_iteration: Optional[Dict[str, Any]] = None
+
+    async def wait_for_signal(self, timeout: float = 1.0) -> bool:
+        """Open a TCP connection, send iteration payload if any, wait for signal."""
+        host, port = self.host, self.port
+        try:
+            # Use blocking socket in a thread-safe way via asyncio loop.run_in_executor
+            payload = json.dumps(self._pending_iteration or {}).encode('utf-8')
+            loop = asyncio.get_event_loop()
+            def _do_io() -> bool:
+                try:
+                    with socket.create_connection((host, port), timeout=self.timeout) as s:
+                        if payload:
+                            try:
+                                s.sendall(payload)
+                            except Exception:
+                                pass
+                        data = b""
+                        s.settimeout(self.timeout)
+                        while True:
+                            try:
+                                chunk = s.recv(4096)
+                            except socket.timeout:
+                                break
+                            if not chunk:
+                                break
+                            data += chunk
+                    if not data:
+                        return False
+                    try:
+                        resp = json.loads(data.decode('utf-8'))
+                        return bool(resp.get("status") == "ok")
+                    except Exception:
+                        return False
+                except Exception as e:
+                    logger.debug(f"TCP analyze interface error: {e}")
+                    return False
+            return await loop.run_in_executor(None, _do_io)
+        finally:
+            # Clear pending iteration after attempt
+            self._pending_iteration = None
+
+    async def send_iteration_data(self, iteration_data: Dict[str, Any]) -> None:
+        """Stage iteration data to send with the next signal wait."""
+        try:
+            self._pending_iteration = iteration_data
+        except Exception:
+            self._pending_iteration = None
+
+    async def connect(self) -> bool:
+        """No persistent connection needed; return True."""
+        self.connected = True
+        return True
+
+    async def disconnect(self) -> None:
+        self.connected = False
