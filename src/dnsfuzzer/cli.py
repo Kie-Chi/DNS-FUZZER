@@ -162,11 +162,7 @@ def client(ctx: click.Context, config: Optional[str], target: tuple,
     config_path = config or ctx.obj.get('config_path')
     
     try:
-        if config_path:
-            client_config = load_client_config(config_path)
-        else:
-            # Use default configuration
-            client_config = create_default_client_config()
+        client_config = load_client_config(config_path)
         
         # Override config with command line options
         if target:
