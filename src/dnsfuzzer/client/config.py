@@ -128,9 +128,10 @@ def load_client_config(config_path: Optional[str] = None) -> ClientConfig:
     if config_path is None:
         # Look for client config in common locations
         possible_paths = [Path(path) for path in [
-            "client_config.yaml",
-            "config/client_config.yaml",
-            "fuzzer_client_config.yaml",
+            "/usr/local/etc/fuzz_client.yaml",
+            "~/.fuzz_client.yaml",
+            "/usr/local/etc/fuzz_client.yml",
+            "~/.fuzz_client.yml",
         ]]
         
         for path in possible_paths:
